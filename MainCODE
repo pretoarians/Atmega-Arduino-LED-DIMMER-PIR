@@ -1,0 +1,175 @@
+// 1. DEBUG_MODE
+// Type: const bool
+// Description: A variable controlling the debugging mode. If set to true, the program will print diagnostic information to the serial console (Serial Monitor). If false, debugging is turned off and the program runs without logging.
+
+// 2. PIR_SENSOR_PIN
+// Type: const byte
+// Description: The pin number to which the PIR motion sensor is connected. In this case, it's pin 2. This variable is set to the pin that will monitor the signal from the PIR sensor (motion detection).
+
+// 3. LED_CONTROL_PIN
+// Type: const byte
+// Description: The pin number controlling the LED or LED module. It is a PWM (Pulse Width Modulation) pin, which allows adjusting the LED brightness by changing the pulse width. In this case, it's pin 9.
+
+// 4. POWER_OFF_DELAY_SECONDS
+// Type: const unsigned long
+// Description: The delay time in seconds before turning off the LED after no motion is detected. This parameter determines how long the LED stays on after motion detection before it turns off.
+
+// 5. LED_ON_TIME_AFTER_MOTION_MS
+// Type: const unsigned long
+// Description: The time for which the LED stays on after motion detection. The value is in milliseconds (60 seconds = 60000 ms). After detecting motion, the LED stays on for this period, then goes to standby mode.
+
+// 6. LED_STANDBY_TIME_MS
+// Type: const unsigned long
+// Description: The time the LED stays in standby mode after motion detection. This is when the LED is not completely off but its brightness is reduced to a standby level.
+
+// 7. CURRENT_PWM
+// Type: int
+// Description: A variable storing the current PWM value controlling the LED brightness. The value can range from 0 (LED off) to a maximum value set in other variables (e.g., MAX_DAY_PWM).
+
+// 8. MAX_DAY_PWM
+// Type: int
+// Description: The maximum PWM value set for daytime, i.e., when the LED should be at full brightness. This value is set to 220, corresponding to a fully bright LED.
+
+// 9. STANDBY_PWM
+// Type: int
+// Description: The PWM value controlling the LED brightness in standby mode. This is a lower value to save energy and provide a subtle glow when no motion is detected for a certain time.
+
+// 10. LED_ON_TIME_MS
+// Type: unsigned long
+// Description: The time when the LED was turned on, stored in milliseconds since the program started. This serves as a reference point for calculations related to how long the LED should stay on after motion detection.
+
+// 11. CURRENT_TIME_MS
+// Type: unsigned long
+// Description: A variable storing the current time since the program started, calculated by the millis() function. It is dynamically changing and allows calculating the time elapsed since the last events, such as motion detection.
+
+// 12. TIME_SINCE_LAST_MOTION_MS
+// Type: unsigned long
+// Description: A variable calculating the time since the last motion detection. It is the difference between the current time (CURRENT_TIME_MS) and the time when motion was last detected (LED_ON_TIME_MS). Used to determine whether the LED should still be on, go to standby, or turn off.
+
+// 13. LAST_MOTION_CHECK_TIME_MS
+// Type: unsigned long
+// Description: A variable tracking the last time the system checked for motion. It is useful for logging information in debugging mode and monitoring when the last motion check was performed.
+
+
+// Debug mode - set to true to enable serial logging
+const bool DEBUG_MODE = false;
+
+// Set this to the pin connected to the PIR motion sensor
+const byte PIR_SENSOR_PIN = 2;  // Changed to pin 2 for PIR
+
+// Set this to the pin supplying power to the LED control board ICs (PWM for LED)
+const byte LED_CONTROL_PIN = 9;  // Changed to pin 9 for PWM control
+
+// Set this to change the power-off delay (in seconds)
+const unsigned long POWER_OFF_DELAY_SECONDS = 60;  // Changed to 30 seconds
+
+// Configuration for lighting times
+const unsigned long LED_ON_TIME_AFTER_MOTION_MS = 300000;  // Time after motion detection (60 seconds) in milliseconds
+const unsigned long LED_STANDBY_TIME_MS = 600000;  // Time in standby mode (60 seconds) in milliseconds
+
+// Declare global variables for control
+int CURRENT_PWM = 0;          // Global variable for PWM value
+int MAX_DAY_PWM = 220;        // Global variable for MAX PWM during the day
+int STANDBY_PWM = 5;          // Global variable for Standby PWM
+
+unsigned long LED_ON_TIME_MS = 0;  // Global variable for time when the LEDs were turned on (in milliseconds)
+unsigned long CURRENT_TIME_MS = 0;    // Global variable for the current time (in milliseconds)
+unsigned long TIME_SINCE_LAST_MOTION_MS = 0;  // Global variable for time since last motion detection (in milliseconds)
+unsigned long LAST_MOTION_CHECK_TIME_MS = 0;  // Additional variable to track last motion check time (in milliseconds)
+
+// Set up the pins connected to the motion sensor and supplying power to the LED controller.
+void setup() {
+    pinMode(PIR_SENSOR_PIN, INPUT);
+    digitalWrite(PIR_SENSOR_PIN, HIGH);  // Enable pull-up resistor (optional)
+
+    pinMode(LED_CONTROL_PIN, OUTPUT);
+    digitalWrite(LED_CONTROL_PIN, LOW);
+    analogWrite(LED_CONTROL_PIN, 0);  // Start with LED off (PWM 0)
+
+    if (DEBUG_MODE) {
+        Serial.begin(9600);  // Initialize the serial port at 9600 baud rate
+    }
+}
+
+// Function to brighten from current PWM to MAX_DAY_PWM within 5 seconds
+void Shine_from_current_point_within_5SEC() {
+    int durationMS = 5000;  // Duration of brightening in milliseconds (5 seconds)
+    int stepDelay = durationMS / (MAX_DAY_PWM - CURRENT_PWM);
+
+    if (stepDelay < 5) {
+        stepDelay = 5;  // Minimum delay to prevent too fast increments
+    }
+
+    for (int pwmValue = CURRENT_PWM; pwmValue <= MAX_DAY_PWM; pwmValue++) {
+        CURRENT_PWM = pwmValue;
+        analogWrite(LED_CONTROL_PIN, CURRENT_PWM);
+        delay(stepDelay);
+    }
+}
+
+// Main loop of the program
+void loop() {
+    static const unsigned long POWER_OFF_DELAY_MS = POWER_OFF_DELAY_SECONDS * 1000UL;
+    CURRENT_TIME_MS = millis();
+    TIME_SINCE_LAST_MOTION_MS = CURRENT_TIME_MS - LED_ON_TIME_MS;
+
+    // Debugging: Log key variables if debug mode is enabled
+    if (DEBUG_MODE) {
+        Serial.print("LAST_MOTION_CHECK_TIME_MS: ");
+        Serial.print(LAST_MOTION_CHECK_TIME_MS);
+        Serial.print(", CURRENT_TIME_MS: ");
+        Serial.print(CURRENT_TIME_MS);
+        Serial.print(", TIME_SINCE_LAST_MOTION_MS: ");
+        Serial.println(TIME_SINCE_LAST_MOTION_MS);
+    }
+
+    // Motion detection check
+    if (digitalRead(PIR_SENSOR_PIN) == HIGH) {   // Motion detected, execute corresponding actions
+        LED_ON_TIME_MS = CURRENT_TIME_MS;
+        LAST_MOTION_CHECK_TIME_MS = CURRENT_TIME_MS;
+
+        if (DEBUG_MODE) {
+            Serial.println("| Motion Detected |");
+            Serial.print("Motion detected at: ");
+            Serial.println(CURRENT_TIME_MS);
+        }
+
+        if (CURRENT_PWM <= 0 || CURRENT_PWM < MAX_DAY_PWM) {  // If LED brightness is 0 or less than max brightness
+            Shine_from_current_point_within_5SEC();
+        } else {
+            CURRENT_PWM = MAX_DAY_PWM;
+            analogWrite(LED_CONTROL_PIN, CURRENT_PWM);
+        }
+    }
+
+    // Handle idle time after motion detection
+    if (TIME_SINCE_LAST_MOTION_MS >= LED_ON_TIME_AFTER_MOTION_MS && TIME_SINCE_LAST_MOTION_MS < LED_ON_TIME_AFTER_MOTION_MS + LED_STANDBY_TIME_MS) {
+        // If debugging is enabled, log information about entering standby mode
+        if (DEBUG_MODE) {
+            Serial.println("| STANDBY ON |");
+        }
+
+        // If current LED brightness is not equal to standby brightness (STANDBY_PWM)
+        if (CURRENT_PWM != STANDBY_PWM) {
+            // Decrease the PWM value by 3, but not below the STANDBY_PWM (5)
+            CURRENT_PWM = max(CURRENT_PWM - 3, STANDBY_PWM);
+
+            // Set the new PWM value for the LED pin (after dimming)
+            analogWrite(LED_CONTROL_PIN, CURRENT_PWM);
+
+            // Add delay to make dimming slower
+            delay(50); // Delay in milliseconds (e.g., 50 ms)
+
+            // If debugging is enabled, log the current PWM value after change
+            if (DEBUG_MODE) {
+                Serial.print("CURRENT_PWM after standby: ");
+                Serial.println(CURRENT_PWM);
+            }
+        }
+    } else if (TIME_SINCE_LAST_MOTION_MS >= LED_ON_TIME_AFTER_MOTION_MS + LED_STANDBY_TIME_MS) {
+        // If debugging is enabled, log information about entering power-off mode
+        if (DEBUG_MODE) {
+            Serial.println("| POWER OFF |");
+        }
+
+        // If...
